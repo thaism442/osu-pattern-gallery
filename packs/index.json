@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "packs": [
+    {
+      "id": "jumps",
+      "file": "jumps.zip",
+      "author": "thaism442",
+      "count": 8,
+      "name": {
+        "tr": "Temel Jumplar",
+        "en": "Basic Jumps"
+      },
+      "desc": {
+        "tr": "Kare, üçgen, yıldız, zigzag gibi 1/2 jump desenleri.",
+        "en": "1/2 jump shapes: square, triangle, star, zigzag and more."
+      }
+    },
+    {
+      "id": "streams",
+      "file": "streams.zip",
+      "author": "thaism442",
+      "count": 8,
+      "name": {
+        "tr": "Stream ve Burstler",
+        "en": "Streams & Bursts"
+      },
+      "desc": {
+        "tr": "Düz, kavisli, dairesel ve spiral 1/4 streamler, 3'lü ve 5'li burstler.",
+        "en": "Straight, curved, circular and spiral 1/4 streams, 3 and 5 note bursts."
+      }
+    },
+    {
+      "id": "sliders",
+      "file": "sliders.zip",
+      "author": "thaism442",
+      "count": 7,
+      "name": {
+        "tr": "Temel Sliderlar",
+        "en": "Basic Sliders"
+      },
+      "desc": {
+        "tr": "Düz, eğri, yay ve geri dönen sliderlar, ninja sliderlar ve slider zinciri.",
+        "en": "Straight, curved, arc and repeat sliders, ninja sliders and slider chains."
+      }
+    }
+  ]
+}
