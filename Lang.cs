@@ -39,6 +39,12 @@ static class Lang
         ["exportTitle"]    = ("Dışa aktar", "Export"),
         ["exportFolder"]   = ("{0} pattern dosyasının kaydedileceği klasörü seç", "Choose a folder for the {0} pattern files"),
         ["exported"]       = ("{0} pattern dışa aktarıldı: {1}", "Exported {0} pattern(s): {1}"),
+        ["packsFail"]      = ("Paketlere ulaşılamadı (internet bağlantını kontrol et). ({0})", "Could not reach the packs (check your internet connection). ({0})"),
+        ["packDownloading"]= ("Paket indiriliyor...", "Downloading pack..."),
+        ["shareBody"]      = ("Bu pattern'i topluluk paketine eklemek istiyorum. (Onaylanınca herkes Paketler'den indirebilecek.)", "I'd like to add this pattern to the community pack. (Once approved, everyone can download it from Packs.)"),
+        ["sharePaste"]     = ("PATTERN'I BURAYA YAPIŞTIR (Ctrl+V)", "PASTE THE PATTERN HERE (Ctrl+V)"),
+        ["shareOpened"]    = ("Tarayıcıda GitHub açıldı: \"Create\" / \"Submit new issue\" ile gönder. Onaylanınca Topluluk paketine eklenecek.", "GitHub opened in your browser: press \"Create\" / \"Submit new issue\". Once approved it goes into the Community pack."),
+        ["shareCopied"]    = ("Pattern kopyalandı. Tarayıcıda açılan sayfada işaretli yere yapıştır (Ctrl+V) ve gönder.", "Pattern copied. Paste it (Ctrl+V) in the marked place on the page that opened, then submit."),
         ["imported"]       = ("{0} pattern dosyası eklendi.", "Imported {0} pattern file(s)."),
 
         ["patternMissing"] = ("Pattern dosyası bulunamadı: {0}", "Pattern file not found: {0}"),
