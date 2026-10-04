@@ -1,0 +1,15 @@
+osu file format v14
+
+// Community pattern by thaism442
+
+[Difficulty]
+SliderMultiplier:1.4
+
+[TimingPoints]
+1000,333.333333,4,2,0,60,1,0
+
+[HitObjects]
+136,112,1000,5,0,0:0:0:0:
+376,112,1167,1,0,0:0:0:0:
+376,272,1333,1,0,0:0:0:0:
+136,272,1500,1,0,0:0:0:0:

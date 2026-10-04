@@ -42,6 +42,20 @@
         "tr": "Düz, eğri, yay ve geri dönen sliderlar, ninja sliderlar ve slider zinciri.",
         "en": "Straight, curved, arc and repeat sliders, ninja sliders and slider chains."
       }
+    },
+    {
+      "id": "community",
+      "file": "community.zip",
+      "author": "community",
+      "count": 1,
+      "name": {
+        "tr": "Topluluk Patternleri",
+        "en": "Community Patterns"
+      },
+      "desc": {
+        "tr": "Mapperların programdan paylaştığı patternler.",
+        "en": "Patterns shared by mappers from the program."
+      }
     }
   ]
 }
