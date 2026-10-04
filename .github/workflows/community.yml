@@ -1,0 +1,37 @@
+# When the repo owner adds the "approved" label to a pattern submission issue,
+# this adds the pattern to the community pack (packs/community.zip) and closes the issue.
+name: Add community pattern
+
+on:
+  issues:
+    types: [labeled]
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  add:
+    if: github.event.label.name == 'approved' && github.actor == github.repository_owner
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Add pattern
+        env:
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          ISSUE_USER: ${{ github.event.issue.user.login }}
+        run: python3 tools/community.py
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add community packs
+          git commit -m "Add community pattern from #${{ github.event.issue.number }}" || echo "nothing to commit"
+          git push
+      - name: Close issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue comment ${{ github.event.issue.number }} --repo ${{ github.repository }} --body "Added to the Community pack. Thank you! / Topluluk paketine eklendi. Teşekkürler!"
+          gh issue close ${{ github.event.issue.number }} --repo ${{ github.repository }}
