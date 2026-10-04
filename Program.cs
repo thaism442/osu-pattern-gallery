@@ -273,6 +273,12 @@ class MainForm : Form
                         foreach (var x in arr.EnumerateArray()) if (x.ValueKind == JsonValueKind.String) list.Add(x.GetString());
                     Export(list);
                     break;
+                case "packs":
+                    LoadPacks();
+                    break;
+                case "installPack":
+                    InstallPack(Str(m, "file"));
+                    break;
                 case "import":
                     Import(Str(m, "category"), dropped);
                     break;
@@ -386,6 +392,7 @@ class MainForm : Form
                 Directory.CreateDirectory(dir);
                 string name = Clean(Path.GetFileNameWithoutExtension(f));
                 string dest = Path.Combine(dir, name + ".osu");
+                if (File.Exists(dest) && File.ReadAllBytes(dest).AsSpan().SequenceEqual(File.ReadAllBytes(f))) { skipped++; continue; }   // same pattern already there
                 for (int i = 2; File.Exists(dest); i++) dest = Path.Combine(dir, $"{name} ({i}).osu");   // never overwrite
                 File.Copy(f, dest);
                 added++;
@@ -397,6 +404,48 @@ class MainForm : Form
         if (added == 0) SendStatus("import", false, Lang.T("importNone"));
         else SendStatus("import", true, Lang.T("imported", added) + (skipped > 0 ? " " + Lang.T("skipped", skipped) : ""));
         SendState();
+    }
+
+    // ---------------------------------------------------------------- ready-made packs from GitHub
+    const string PacksUrl = "https://raw.githubusercontent.com/thaism442/osu-pattern-gallery/main/packs/";
+    static readonly System.Net.Http.HttpClient http = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+
+    async void LoadPacks()
+    {
+        try
+        {
+            if (!http.DefaultRequestHeaders.UserAgent.Any()) http.DefaultRequestHeaders.UserAgent.ParseAdd("osu-pattern-gallery");
+            string json = await http.GetStringAsync(PacksUrl + "index.json?t=" + DateTime.UtcNow.Ticks);
+            using var doc = JsonDocument.Parse(json);
+            Post(new { type = "packs", ok = true, packs = doc.RootElement.GetProperty("packs").Clone() });
+        }
+        catch (Exception ex)
+        {
+            Post(new { type = "packs", ok = false, error = Lang.T("packsFail", ex.Message) });
+        }
+    }
+
+    async void InstallPack(string file)
+    {
+        // only simple file names like "jumps.zip"
+        if (string.IsNullOrEmpty(file) || file.Contains('/') || file.Contains('\\') || file.Contains("..") || !file.EndsWith(".zip"))
+            return;
+        string tmp = Path.Combine(Path.GetTempPath(), "PatternGallery_" + Guid.NewGuid().ToString("N") + ".zip");
+        try
+        {
+            SendStatus("pack", true, Lang.T("packDownloading"));
+            var bytes = await http.GetByteArrayAsync(PacksUrl + Uri.EscapeDataString(file) + "?t=" + DateTime.UtcNow.Ticks);
+            await File.WriteAllBytesAsync(tmp, bytes);
+            Import("", new List<string> { tmp });   // folders inside the pack become categories
+        }
+        catch (Exception ex)
+        {
+            SendStatus("pack", false, Lang.T("packsFail", ex.Message));
+        }
+        finally
+        {
+            try { File.Delete(tmp); } catch { }
+        }
     }
 
     // Saves the chosen patterns as normal .osu files: one pattern with "Save as", several into a chosen folder
