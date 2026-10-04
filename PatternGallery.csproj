@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <AssemblyName>PatternGallery</AssemblyName>
+    <ApplicationIcon>app.ico</ApplicationIcon>
+    <DefaultItemExcludes>$(DefaultItemExcludes);App\**;Release\**</DefaultItemExcludes>
+    <NoWarn>$(NoWarn);MSB3270;NU1702;NU1603</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="EditorReader">
+      <HintPath>lib\EditorReader.dll</HintPath>
+    </Reference>
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.*" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="ui\**" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>
