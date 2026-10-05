@@ -99,6 +99,10 @@ button,input{font:inherit;color:inherit}
 .card .edit{position:absolute;top:6px;right:36px;width:24px;height:24px;border-radius:50%;background:rgba(0,0,0,.55);border:none;
   color:#fff;cursor:pointer;display:none;align-items:center;justify-content:center;font-size:13px;line-height:1}
 .card:hover .edit{display:flex}
+.card .share{position:absolute;top:6px;right:66px;width:24px;height:24px;border-radius:50%;background:rgba(0,0,0,.55);border:none;
+  color:#fff;cursor:pointer;display:none;align-items:center;justify-content:center;font-size:13px;line-height:1}
+.card:hover .share{display:flex}
+.card .share:hover{background:var(--accent)}
 .card .edit:hover{background:var(--accent)}
 .modal{position:fixed;inset:0;background:rgba(10,9,13,.7);display:none;align-items:center;justify-content:center;z-index:40}
 .modal.on{display:flex}
@@ -115,6 +119,18 @@ button,input{font:inherit;color:inherit}
 .toggle.on{color:var(--text)}
 .toggle.on .sw{background:var(--accent)}
 .toggle.on .sw:after{left:15px}
+/* bot */
+.bdot{width:8px;height:8px;border-radius:50%;background:#5a5563;display:inline-block}
+.bdot.on{background:var(--ok);box-shadow:0 0 6px var(--ok)}
+.bdot.wait{background:#ffcc55}
+.bdot.err{background:var(--err)}
+.bstate{font-size:13px;font-weight:700}
+.bcode{font-size:26px;font-weight:800;letter-spacing:6px;color:var(--accent);background:var(--card);border-radius:10px;padding:8px 14px;align-self:flex-start;user-select:text}
+.chipx{display:inline-flex;align-items:center;gap:6px;background:var(--card);border-radius:12px;padding:3px 10px;margin:2px 4px 2px 0;color:var(--text)}
+.chipx button{background:none;border:none;color:var(--muted);cursor:pointer}
+code{background:var(--card);border-radius:5px;padding:1px 6px;color:var(--text)}
+.langsel{appearance:none;-webkit-appearance:none;padding:0 10px;outline:none;color:var(--text);max-width:150px;width:auto}
+.langsel option{background:var(--card);color:var(--text)}
 /* packs */
 .pk{display:flex;gap:12px;align-items:center;background:var(--card);border-radius:12px;padding:12px}
 .pk .ic{width:40px;height:40px;border-radius:10px;background:var(--accent);flex:none;display:flex;align-items:center;justify-content:center;font-size:20px}
@@ -122,7 +138,7 @@ button,input{font:inherit;color:inherit}
 .pk .nm{font-weight:800;font-size:14px}
 .pk .ds{font-size:12px;color:var(--muted);margin-top:2px}
 .pk .btn{height:34px;padding:0 14px}
-@media (max-width:680px){#pinTxt,#packsTxt{display:none}}
+@media (max-width:720px){#pinTxt,#packsTxt,#botTxt{display:none}}
 /* drop overlay */
 .drop{position:fixed;inset:10px;border:3px dashed var(--accent);border-radius:16px;background:rgba(22,20,27,.98);
   display:none;align-items:center;justify-content:center;flex-direction:column;gap:10px;z-index:50;pointer-events:none;text-align:center;padding:20px}
@@ -141,11 +157,15 @@ button,input{font:inherit;color:inherit}
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"><path d="M3 7l9-4 9 4-9 4-9-4z"/><path d="M3 7v10l9 4 9-4V7"/><path d="M12 11v10"/></svg>
       <span id="packsTxt"></span>
     </button>
+    <button class="iconbtn" id="botBtn" style="display:none">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><rect x="4" y="8" width="16" height="11" rx="3"/><path d="M12 4v4M9 13h.01M15 13h.01M2 13v2M22 13v2"/></svg>
+      <span id="botTxt">Bot</span><span class="bdot" id="botDot"></span>
+    </button>
     <button class="iconbtn" id="hkBtn">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h1M10 10h1M14 10h1M18 10h0M7 14h10"/></svg>
       <span id="hkTxt">F11</span>
     </button>
-    <button class="iconbtn" id="langBtn" title="Language / Dil">TR</button>
+    <select class="iconbtn langsel" id="langBox" title="Language"></select>
     <button class="iconbtn" id="pinBtn">
       <svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 3l5 5-3 1-3 3 1 5-2 2-4-4-5 5-1-1 5-5-4-4 2-2 5 1 3-3z"/></svg>
       <span id="pinTxt"></span>
@@ -188,6 +208,29 @@ button,input{font:inherit;color:inherit}
   </div>
 </div>
 
+<div class="modal" id="botModal"><div class="dlg" style="width:min(460px,92vw);max-height:92vh;overflow-y:auto">
+  <h3 id="bTitle"></h3>
+  <div class="bstate" id="bState"></div>
+  <div class="btns" style="justify-content:flex-start;margin-top:4px"><button class="btn pri" id="bStart"></button>
+    <div class="toggle" id="bAuto"><div class="sw"></div><span id="bAutoTxt"></span></div></div>
+  <label id="bLinkL" style="margin-top:10px"></label>
+  <div class="bcode" id="bCode"></div>
+  <div class="small" id="bLinked" style="font-size:12px;color:var(--muted)"></div>
+  <div class="small" id="bSrvHelp" style="font-size:12px;color:var(--muted)"></div>
+  <label id="bCmdL" style="margin-top:8px"></label>
+  <div class="small" id="bCmds" style="font-size:12px;line-height:1.7"></div>
+  <div class="toggle" id="bOwn" style="margin-top:12px"><div class="sw"></div><span id="bOwnTxt"></span></div>
+  <div id="bOwnBox" style="display:none;flex-direction:column;gap:6px">
+    <label id="bUserL"></label><input class="input" id="bUser" maxlength="40" autocomplete="off">
+    <label id="bPassL"></label><input class="input" id="bPass" type="password" autocomplete="off">
+    <div class="small" id="bPassHelp" style="font-size:11px;color:var(--muted)"></div>
+    <div class="btns" style="justify-content:flex-start"><button class="btn" id="bSave"></button></div>
+    <div class="row" style="margin-top:6px"><input class="input" id="bTestTo" placeholder="thaism" maxlength="40"><button class="btn" id="bTest"></button></div>
+    <div class="small" id="bTestHelp" style="font-size:11px;color:var(--muted)"></div>
+    <div class="small" id="bWarn" style="font-size:11px;color:var(--muted);margin-top:6px"></div>
+  </div>
+  <div class="btns"><button class="btn" id="bClose"></button></div>
+</div></div>
 <div class="modal" id="packsModal"><div class="dlg" style="width:min(460px,92vw)">
   <h3 id="pkTitle"></h3>
   <div class="small" id="pkSub" style="font-size:12px;color:var(--muted)"></div>
@@ -202,33 +245,26 @@ button,input{font:inherit;color:inherit}
 </div></div>
 <div class="drop" id="drop"><div class="big" id="dropBig"></div><div class="small" id="dropSmall"></div></div>
 <script>
-const TXT = {
-  tr: {
-    pin: "Hep üstte", packs: "Paketler", pkTitle: "Hazır pattern paketleri", pkSub: "İndirilen paketler kendi kategorileriyle kütüphanene eklenir.", pkLoading: "Paketler yükleniyor...", pkGet: "İndir", pkAgain: "Tekrar indir", pkClose: "Kapat", pkBy: "{0} pattern · {1}", pkEmpty: "Henüz paket yok.", adapt: "Ritme uyarla", adaptTip: "Açıkken pattern, haritanın BPM'ine ve slider hızına göre uyarlanır: 1/4 stream 1/4 kalır, 1/2 slider 1/2 uzunluğunda kalır.", exp: "⤓ Dışa aktar", expN: "⤓ Dışa aktar ({0})", expTip: "Seçili pattern(ler)i .osu dosyası olarak kaydeder (5 pattern = 5 dosya). Birden fazla seçmek için Ctrl'ye basılı tutup tıkla (Ctrl+A: hepsi).", selN: "{0} pattern seçili. Dışa aktarmak için ⤓ butonuna bas.", replace: "Çakışanları sil", replaceTip: "Açıkken, pattern'in kapladığı aralıktaki eski notalar silinir ve yerine pattern gelir.", edit: "Düzenle", edTitle: "Pattern'i düzenle", edName: "İsim", edCat: "Kategori", edOk: "Kaydet", edCancel: "İptal", dropBig: "Bırak, kütüphaneye eklensin", dropTo: "→ {0} kategorisine", dropAll: "Kategorisiz olarak eklenecek (önce bir kategori seçebilirsin)", dropHint: ".osu dosyaları, pattern paketleri (.zip) ya da klasörler", hkTip: "Kısayol tuşu (editördeyken): notalar seçiliyse kaydetme penceresi, seçili değilse pattern arayıp ekleme penceresi açılır. Değiştirmek için tıkla.", hkPress: "Bir tuşa bas...", hkHelp: "Yeni kısayol tuşuna bas (Ctrl/Alt/Shift ile birlikte de olur). Vazgeçmek için Esc.", mapOpen: "Editörde açık", mapNone: "osu! editörü açık değil", mapNoneSub: "Haritanı osu! editöründe aç",
-    all: "Tümü", newCat: "+ Yeni", newCatPh: "kategori adı", noCat: "Kategorisiz",
-    namePh: "Seçili notalara bir isim ver...", namePhCat: "Seçili notalara isim ver → {0}",
-    save: "+ Seçileni kaydet", search: "Ara (isim ya da kategori)...",
-    undo: "↶ Geri al", insert: "Ekle", ready: "Hazır. Pattern'e çift tıkla, editördeki zamana eklensin.",
-    notes: "nota", del: "Sil", working: "Çalışıyor...",
-    empty: "Henüz pattern yok.<br><b>Editörde notaları seç</b>, yukarıya bir isim yaz ve <b>Seçileni kaydet</b>'e bas.",
-    emptySearch: "Aramana uyan pattern yok.", pickFirst: "Önce bir pattern seç."
-  },
-  en: {
-    pin: "Always on top", packs: "Packs", pkTitle: "Ready-made pattern packs", pkSub: "Downloaded packs are added to your library with their own categories.", pkLoading: "Loading packs...", pkGet: "Download", pkAgain: "Download again", pkClose: "Close", pkBy: "{0} patterns · {1}", pkEmpty: "No packs yet.", adapt: "Adapt rhythm", adaptTip: "When on, the pattern is fitted to the beatmap's BPM and slider velocity: a 1/4 stream stays 1/4, a 1/2 slider stays 1/2 long.", exp: "⤓ Export", expN: "⤓ Export ({0})", expTip: "Saves the selected pattern(s) as .osu files (5 patterns = 5 files). Hold Ctrl and click to select several (Ctrl+A: all).", selN: "{0} patterns selected. Press ⤓ to export them.", replace: "Replace overlapping", replaceTip: "When on, old objects in the pattern's time range are removed and replaced by the pattern.", edit: "Edit", edTitle: "Edit pattern", edName: "Name", edCat: "Category", edOk: "Save", edCancel: "Cancel", dropBig: "Drop to add to your library", dropTo: "→ into \"{0}\"", dropAll: "Will be added without a category (you can pick one first)", dropHint: ".osu files, pattern packs (.zip) or folders", hkTip: "Hotkey (in the editor): with objects selected it opens saving, otherwise searching and inserting a pattern. Click to change it.", hkPress: "Press a key...", hkHelp: "Press the new hotkey (can be combined with Ctrl/Alt/Shift). Esc to cancel.", mapOpen: "Open in editor", mapNone: "osu! editor is not open", mapNoneSub: "Open your beatmap in the osu! editor",
-    all: "All", newCat: "+ New", newCatPh: "category name", noCat: "No category",
-    namePh: "Name the selected objects...", namePhCat: "Name the selected objects → {0}",
-    save: "+ Save selected", search: "Search (name or category)...",
-    undo: "↶ Undo", insert: "Insert", ready: "Ready. Double-click a pattern to insert it at the editor time.",
-    notes: "objects", del: "Delete", working: "Working...",
-    empty: "No patterns yet.<br><b>Select objects in the editor</b>, type a name above and click <b>Save selected</b>.",
-    emptySearch: "No pattern matches your search.", pickFirst: "Select a pattern first."
-  }
-};
+// texts come from lang/<code>.json (same files the program uses); English is the fallback
+const STR = { en: {}, cur: {} };
+let LANGS = [];
+async function loadLang(code) {
+  const get = async c => { try { const r = await fetch("lang/" + c + ".json"); return r.ok ? await r.json() : {}; } catch { return {}; } };
+  if (!Object.keys(STR.en).length) STR.en = await get("en");
+  STR.cur = code === "en" ? STR.en : await get(code);
+  if (!LANGS.length) { try { LANGS = await (await fetch("lang/languages.json")).json(); } catch { LANGS = [{ code: "en", name: "English" }]; } }
+  fillLangBox();
+}
+function fillLangBox() {
+  const box = $("langBox");
+  box.innerHTML = LANGS.map(l => `<option value="${l.code}">${l.name}</option>`).join("");
+  box.value = S.lang;
+}
 const COMBO = ["#ff66aa", "#66ccff", "#ffcc55", "#88ee88"];
 
-let S = { adapt: true, multi: new Set(), lang: "tr", topmost: true, replace: true, editing: null, hotkey: "F11", capturing: false, categories: [], patterns: [], cat: "", search: "", sel: null, map: null, addingCat: false, pendingSave: false };
+let S = { adapt: true, multi: new Set(), lang: "", topmost: false, replace: true, editing: null, hotkey: "F11", capturing: false, categories: [], patterns: [], cat: "", search: "", sel: null, map: null, addingCat: false, pendingSave: false };
 const $ = id => document.getElementById(id);
-const t = (k, ...a) => (TXT[S.lang][k] || k).replace(/\{(\d)\}/g, (_, i) => a[i]);
+const t = (k, ...a) => String(STR.cur[k] ?? STR.en[k] ?? k).replace(/\{(\d)\}/g, (_, i) => a[i]);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const send = msg => { if (window.chrome && chrome.webview) chrome.webview.postMessage(msg); };
 
@@ -278,8 +314,10 @@ function visiblePatterns() {
 
 function renderTexts() {
   document.documentElement.lang = S.lang;
-  $("langBtn").textContent = S.lang.toUpperCase();
+  $("langBox").title = t("langTip");
+  if ($("langBox").value !== S.lang) $("langBox").value = S.lang;
   $("pinTxt").textContent = t("pin");
+  renderBot();
   $("pinBtn").title = t("pin");
   $("packsTxt").textContent = t("packs");
   $("packsBtn").title = t("pkTitle");
@@ -368,6 +406,7 @@ function renderGallery() {
       const meta = `${p.count} ${t("notes")}` + (p.bpm ? ` · ${p.bpm} BPM` : "");
       h += `<div class="card ${S.multi.has(p.path) ? "sel" : ""}" data-path="${esc(p.path)}" title="${esc(p.name)}">
               ${preview(p)}
+              <button class="share" data-share="${esc(p.path)}" title="${esc(t("share"))}">⇪</button>
               <button class="edit" data-edit="${esc(p.path)}" title="${esc(t("edit"))}">✎</button>
               <button class="del" data-del="${esc(p.path)}" title="${esc(t("del"))}">✕</button>
               <div class="nm">${esc(p.name)}</div><div class="meta">${meta}</div>
@@ -398,6 +437,8 @@ $("chips").addEventListener("click", e => {
 $("gallery").addEventListener("click", e => {
   const del = e.target.closest("[data-del]");
   if (del) { e.stopPropagation(); send({ cmd: "delete", path: del.dataset.del }); return; }
+  const sh = e.target.closest("[data-share]");
+  if (sh) { e.stopPropagation(); send({ cmd: "share", path: sh.dataset.share }); return; }
   const ed = e.target.closest("[data-edit]");
   if (ed) { e.stopPropagation(); openEdit(ed.dataset.edit); return; }
   const card = e.target.closest(".card");
@@ -416,7 +457,7 @@ $("gallery").addEventListener("click", e => {
 });
 $("gallery").addEventListener("dblclick", e => {
   const card = e.target.closest(".card");
-  if (card && !e.target.closest("[data-del]") && !e.target.closest("[data-edit]")) insert(card.dataset.path);
+  if (card && !e.target.closest("button")) insert(card.dataset.path);
 });
 
 function insert(path) {
@@ -430,7 +471,8 @@ function save() {
   send({ cmd: "save", category: S.cat, name: $("nameIn").value });
 }
 
-$("insertBtn").onclick = () => insert(S.sel);
+// "Insert pattern": inserts the selected card, or opens the insert window when nothing is selected
+$("insertBtn").onclick = () => S.sel ? insert(S.sel) : send({ cmd: "openQuick", mode: "insert" });
 $("exportBtn").onclick = () => {
   const paths = S.multi.size ? [...S.multi] : (S.sel ? [S.sel] : []);
   if (!paths.length) { setStatus(t("pickFirst"), "err"); return; }
@@ -469,14 +511,76 @@ document.addEventListener("keydown", e => {
   renderTexts();
 }, true);
 $("pinBtn").onclick = () => { S.topmost = !S.topmost; renderTexts(); send({ cmd: "topmost", value: S.topmost }); };
-$("langBtn").onclick = () => { S.lang = S.lang === "tr" ? "en" : "tr"; delete $("status").dataset.set; renderAll(); send({ cmd: "lang", value: S.lang }); };
+$("langBox").onchange = async () => {
+  S.lang = $("langBox").value;
+  await loadLang(S.lang);
+  delete $("status").dataset.set;
+  renderAll(); renderBot();
+  send({ cmd: "lang", value: S.lang });
+};
 document.addEventListener("keydown", e => {
   if (e.key === "Enter" && e.target === document.body && S.sel) insert(S.sel);
 });
 
+// ------------------------------------------------------------ osu! chat bot
+let B = { state: "off", linked: [], code: "", username: "", hasPassword: false, autostart: false, error: "", own: false, botName: "" };
+function renderBot() {
+  const on = B.state === "on", busy = on || B.state === "connecting";
+  const botName = B.botName || "bot";
+  $("botDot").className = "bdot " + ({ on: "on", connecting: "wait", error: "err" }[B.state] || "");
+  $("botBtn").title = t("bTitle");
+  $("bTitle").textContent = t("bTitle");
+  $("bState").textContent = on ? (B.own ? t("bOn", B.botName) : t("srvOn", botName)) : B.state === "connecting" ? t("bConn") + (B.error ? " " + B.error : "") : B.state === "error" ? t("bErr", B.error) : t("bOff");
+  $("bState").style.color = on ? "var(--ok)" : (B.state === "error" || B.error) ? "var(--err)" : "var(--muted)";
+  $("bStart").textContent = busy ? t("bStop") : t("bStart");
+  $("bAutoTxt").textContent = t("bAuto");
+  $("bAuto").classList.toggle("on", B.autostart);
+  $("bLinkL").textContent = t("bLinkL");
+  $("bCode").textContent = on ? B.code : "······";
+  $("bLinked").innerHTML = esc(B.own ? t("bLinkHow", B.code) : t("bLinkHowSrv", B.code, botName)) + "<br>" + esc(t("bLinkedL")) +
+    (B.linked.length ? B.linked.map(n => `<span class="chipx">${esc(n)}<button data-unlink="${esc(n)}">✕</button></span>`).join("") : esc(t("bNone")));
+  $("bSrvHelp").textContent = B.own ? "" : t("bSrvHelp", botName);
+  $("bCmdL").textContent = t("bCmdL");
+  $("bCmds").innerHTML = "<code>!tech 1</code> <code>!slider kare</code> <code>!p kare</code> <code>!list</code> <code>!list slider</code> <code>!undo</code> <code>!lang tr</code> <code>!help</code>";
+  $("bOwnTxt").textContent = t("bOwn");
+  $("bOwn").classList.toggle("on", B.own);
+  $("bOwn").style.display = B.ownAllowed ? "" : "none";
+  $("bOwnBox").style.display = B.own ? "flex" : "none";
+  $("bUserL").textContent = t("bUser");
+  $("bPassL").textContent = t("bPass");
+  $("bPass").placeholder = B.hasPassword ? t("bPassKeep") : "";
+  $("bPassHelp").textContent = t("bPassHelp");
+  $("bSave").textContent = t("bSave");
+  $("bWarn").textContent = t("bWarn");
+  $("bTest").textContent = t("bTest");
+  $("bTestHelp").textContent = t("bTestHelp");
+  $("bClose").textContent = t("bClose");
+}
+function botSave(extra) {
+  send(Object.assign({ cmd: "botSave", username: $("bUser").value, password: $("bPass").value, autostart: B.autostart, own: B.own }, extra || {}));
+  $("bPass").value = "";
+}
+$("botBtn").onclick = () => { $("bUser").value = B.username; $("bPass").value = ""; renderBot(); $("botModal").classList.add("on"); };
+$("bClose").onclick = () => $("botModal").classList.remove("on");
+$("botModal").addEventListener("mousedown", e => { if (e.target.id === "botModal") $("botModal").classList.remove("on"); });
+$("bAuto").onclick = () => { B.autostart = !B.autostart; renderBot(); botSave(); };
+$("bOwn").onclick = () => {
+  const wasRunning = B.state === "on" || B.state === "connecting";
+  B.own = !B.own; renderBot(); botSave();
+  if (wasRunning) send({ cmd: "botStart" });      // restart in the other mode
+};
+$("bSave").onclick = () => botSave();
+$("bStart").onclick = () => {
+  if (B.state === "on" || B.state === "connecting") { send({ cmd: "botStop" }); return; }
+  botSave();
+  send({ cmd: "botStart" });
+};
+$("bTest").onclick = () => send({ cmd: "botTest", to: $("bTestTo").value || "thaism" });
+$("bLinked").addEventListener("click", e => { const b = e.target.closest("[data-unlink]"); if (b) send({ cmd: "botUnlink", name: b.dataset.unlink }); });
+
 // ------------------------------------------------------------ ready-made packs
 let PK = null, pkLoaded = new Set();
-const icons = { jumps: "⚡", streams: "〰", sliders: "➰" };
+const icons = { jumps: "⚡", streams: "〰", sliders: "➰", community: "👥" };
 function renderPacks() {
   $("pkTitle").textContent = t("pkTitle");
   $("pkSub").textContent = t("pkSub");
@@ -560,11 +664,15 @@ window.addEventListener("drop", e => {
 // ------------------------------------------------------------ messages from the program
 function onMessage(m) {
   if (m.type === "state") {
+    if (m.lang !== S.lang || !Object.keys(STR.cur).length) { S.lang = m.lang; loadLang(m.lang).then(() => { renderAll(); renderBot(); }); }
+    $("botBtn").style.display = m.botEnabled ? "" : "none";
     S.lang = m.lang; S.topmost = m.topmost; S.replace = m.replace !== false; S.adapt = m.adapt !== false; S.hotkey = m.hotkey || "F11"; S.categories = m.categories || []; S.patterns = m.patterns || [];
     if (S.cat && !S.categories.some(c => c.toLowerCase() === S.cat.toLowerCase())) S.cat = "";
     if (S.sel && !S.patterns.some(p => p.path === S.sel)) S.sel = null;
     S.multi = new Set([...S.multi].filter(x => S.patterns.some(p => p.path === x)));
     renderAll();
+  } else if (m.type === "bot") {
+    B = m; renderBot();
   } else if (m.type === "packs") {
     PK = m.ok ? { packs: m.packs || [] } : { error: m.error };
     renderPacks();

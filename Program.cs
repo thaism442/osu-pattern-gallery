@@ -38,6 +38,9 @@ class MainForm : Form
     readonly Dictionary<string, (DateTime time, Preview.PatternData data)> cache =
         new Dictionary<string, (DateTime time, Preview.PatternData data)>(StringComparer.OrdinalIgnoreCase);
     string lastMap = null;
+    readonly OsuBot bot = new OsuBot();
+    // The bot is on for everybody (it uses the shared bot on our server). Put an empty file named "bot.disabled" next to the exe to hide it.
+    static readonly bool BotEnabled = !File.Exists(Path.Combine(AppContext.BaseDirectory, "bot.disabled"));
     Process osuProc;
     IntPtr osuWindow;
 
@@ -59,9 +62,8 @@ class MainForm : Form
         BackColor = Color.FromArgb(28, 26, 34);
         try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
 
-        // "Always on top" is on unless the user turned it off
-        TopMost = true;
-        try { if (File.Exists(TopmostFile)) TopMost = File.ReadAllText(TopmostFile).Trim() != "0"; } catch { }
+        // the window starts normal (not pinned); "Always on top" can be turned on with the pin button
+        TopMost = false;
 
         Controls.Add(web);
         Load += async (s, e) => await InitWeb();
@@ -81,7 +83,8 @@ class MainForm : Form
     bool replaceOverlapping = true;
     static readonly string AdaptFile = Path.Combine(AppContext.BaseDirectory, "adapt.txt");
     bool adaptRhythm = true;
-    QuickSaveForm quickSave;
+    QuickWindow quick;
+    CoreWebView2Environment webEnv;
     string lastQuickCategory = "";
 
     void LoadHotkey()
@@ -105,12 +108,14 @@ class MainForm : Form
         if (!hkActive) SendStatus("hotkey", false, Lang.T("hotkeyFail", hkLabel));
     }
 
-    string pendingInsert;
+    [DllImport("user32.dll")] static extern short GetAsyncKeyState(int vk);
 
-    // Hotkey pressed in the editor: objects selected -> "Save" tab, nothing selected -> "Insert" tab
+    // Hotkey pressed in the editor: opens the small "Save pattern / Insert pattern" window.
+    // Objects selected in the editor -> "Save" tab, nothing selected -> "Insert" tab. Pressing it again closes it.
     void OnHotkey()
     {
-        if (quickSave != null) { quickSave.Activate(); return; }
+        if (quick == null || !quick.Ready) return;
+        if (quick.Visible) { CloseQuick(null); return; }
 
         IntPtr osuWnd = FindOsuWindow();
         var sb = new System.Text.StringBuilder(512);
@@ -120,43 +125,83 @@ class MainForm : Form
             SendStatus("hotkey", false, Lang.T("editorNotOpen"));
             return;
         }
-
-        Directory.CreateDirectory(Core.PatternDir);
-        var cats = Directory.GetDirectories(Core.PatternDir).Select(Path.GetFileName)
-            .OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToList();
-        var items = Directory.GetFiles(Core.PatternDir, "*.osu", SearchOption.AllDirectories)
-            .Select(f =>
-            {
-                string rel = Path.ChangeExtension(Path.GetRelativePath(Core.PatternDir, f), null).Replace('\\', '/');
-                var d = GetData(f);
-                string info = d.count + " " + Lang.T("notesShort") + (d.bpm > 0 ? " · " + d.bpm + " BPM" : "");
-                return new QuickItem { Path = f, Name = rel, Info = info };
-            })
-            .OrderBy(i => i.Name, StringComparer.OrdinalIgnoreCase).ToList();
-
-        bool startOnSave = Core.SelectedCount() > 0;
-        pendingInsert = null;
-        quickSave = new QuickSaveForm(cats, lastQuickCategory, QuickSave, items, path => { pendingInsert = path; return null; }, startOnSave);
-        try
-        {
-            quickSave.ShowDialog();
-        }
-        finally
-        {
-            quickSave.Dispose();
-            quickSave = null;
-            if (osuWnd != IntPtr.Zero) SetForegroundWindow(osuWnd);   // back to the editor
-        }
-
-        if (pendingInsert != null)
-        {
-            string toInsert = pendingInsert;
-            pendingInsert = null;
-            RunAction("insert", () => Core.Insert(toInsert, replaceOverlapping, adaptRhythm));
-        }
+        OpenQuick(Core.SelectedCount() > 0 ? "save" : "insert", osuWnd);
     }
 
-    // Called by the small window. Returns null when saved, or an error text.
+    // also used by the main window's "Insert pattern" / "Save pattern" buttons
+    void OpenQuick(string mode, IntPtr returnTo)
+    {
+        if (quick == null || !quick.Ready) return;
+        Directory.CreateDirectory(Core.PatternDir);
+        string root = Path.GetFullPath(Core.PatternDir);
+        var cats = Directory.GetDirectories(Core.PatternDir).Select(Path.GetFileName)
+            .OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToList();
+
+        var list = new List<(string path, string cat, string name, Preview.PatternData data)>();
+        foreach (var f in Directory.GetFiles(Core.PatternDir, "*.osu", SearchOption.AllDirectories))
+        {
+            var parts = Path.GetRelativePath(root, Path.GetFullPath(f)).Split(Path.DirectorySeparatorChar);
+            list.Add((f, parts.Length > 1 ? parts[0] : "", Path.GetFileNameWithoutExtension(f), GetData(f)));
+        }
+        // numbers inside each category, the same as the bot ("!jumps 1")
+        var patterns = new List<object>();
+        foreach (var g in list.GroupBy(x => x.cat, StringComparer.OrdinalIgnoreCase).OrderBy(g => g.Key == "" ? "~" : g.Key, StringComparer.OrdinalIgnoreCase))
+        {
+            int n = 1;
+            foreach (var x in g.OrderBy(x => x.name, StringComparer.OrdinalIgnoreCase))
+                patterns.Add(new { path = x.path, cat = x.cat, name = x.name, index = n++, count = x.data.count, bpm = x.data.bpm, objs = x.data.objs });
+        }
+
+        quick.ReturnTo = returnTo;
+        quick.Post(new { type = "quick", mode, lang = Lang.Current, categories = cats, patterns, lastCat = lastQuickCategory });
+        quick.ShowOver(returnTo);
+        KeyHook.QuickWindow = quick.Handle;
+    }
+
+    // closes the small window and goes back to osu! once Esc / F11 is released (so osu! never gets that key)
+    void CloseQuick(string insertPath)
+    {
+        if (quick == null || !quick.Visible) return;
+        quick.Hide();
+        IntPtr back = quick.ReturnTo;
+        Task.Run(async () =>
+        {
+            for (int i = 0; i < 50 && ((GetAsyncKeyState(0x1B) & 0x8000) != 0 || (GetAsyncKeyState((int)hkVk) & 0x8000) != 0); i++)
+                await Task.Delay(20);
+            BeginInvoke(new Action(() =>
+            {
+                if (back != IntPtr.Zero) SetForegroundWindow(back);
+                if (insertPath != null) RunAction("insert", () => Core.Insert(insertPath, replaceOverlapping, adaptRhythm));
+            }));
+        });
+    }
+
+    void OnQuickMessage(string json)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            var m = doc.RootElement;
+            switch (Str(m, "cmd"))
+            {
+                case "qclose":
+                    CloseQuick(null);
+                    break;
+                case "qinsert":
+                    string p = SafePath(Str(m, "path"));
+                    if (p != null) CloseQuick(p);
+                    break;
+                case "qsave":
+                    string err = QuickSave(Str(m, "category"), Str(m, "name"));
+                    if (err == null) CloseQuick(null);
+                    else quick.Post(new { type = "qresult", ok = false, text = err });
+                    break;
+            }
+        }
+        catch { }
+    }
+
+    // Returns null when saved, or an error text.
     string QuickSave(string category, string name)
     {
         category = Clean(category);
@@ -164,7 +209,7 @@ class MainForm : Form
         if (name.Length == 0) return Lang.T("needName");
         string path = Path.Combine(Core.PatternDir, category, name + ".osu");
         if (File.Exists(path) &&
-            MessageBox.Show(quickSave, Lang.T("overwriteQ", name), Lang.T("overwriteT"),
+            MessageBox.Show(quick, Lang.T("overwriteQ", name), Lang.T("overwriteT"),
                 MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
             return "";
         try
@@ -191,6 +236,7 @@ class MainForm : Form
         {
             var options = new CoreWebView2EnvironmentOptions("--disable-gpu --disable-gpu-compositing --disable-smooth-scrolling --renderer-process-limit=1");
             var env = await CoreWebView2Environment.CreateAsync(null, Path.Combine(AppContext.BaseDirectory, "WebViewData"), options);
+            webEnv = env;
             await web.EnsureCoreWebView2Async(env);
         }
         catch (Exception ex)
@@ -224,6 +270,15 @@ class MainForm : Form
             BeginInvoke(new Action(() => OnMessage(json, dropped)));   // leave the event first, then do the work
         };
         cw.Navigate("https://app.local/index.html");
+
+        // the small hotkey window is prepared in the background so it opens instantly
+        try
+        {
+            quick = new QuickWindow();
+            quick.Message += json => BeginInvoke(new Action(() => OnQuickMessage(json)));
+            await quick.Init(webEnv);
+        }
+        catch { quick = null; }
     }
 
     // ---------------------------------------------------------------- messages from the page
@@ -236,6 +291,7 @@ class MainForm : Form
             switch (Str(m, "cmd"))
             {
                 case "ready":
+                    SetupBot();
                     LoadHotkey();
                     try { if (File.Exists(ReplaceFile)) replaceOverlapping = File.ReadAllText(ReplaceFile).Trim() != "0"; } catch { }
                     try { if (File.Exists(AdaptFile)) adaptRhythm = File.ReadAllText(AdaptFile).Trim() != "0"; } catch { }
@@ -273,6 +329,36 @@ class MainForm : Form
                         foreach (var x in arr.EnumerateArray()) if (x.ValueKind == JsonValueKind.String) list.Add(x.GetString());
                     Export(list);
                     break;
+                case "botSave":
+                    bot.Settings.Username = Str(m, "username").Trim();
+                    if (Str(m, "password").Length > 0) bot.Settings.SetPassword(Str(m, "password"));
+                    bot.Settings.AutoStart = m.TryGetProperty("autostart", out var asv) && asv.ValueKind == JsonValueKind.True;
+                    if (m.TryGetProperty("own", out var ownv)) bot.Settings.OwnAccount = ownv.ValueKind == JsonValueKind.True;
+                    bot.Settings.Save();
+                    SendBot();
+                    break;
+                case "botTest":
+                    SendStatus("bot", bot.SendTest(Str(m, "to")), bot.State == "on" ? Lang.T("botTestSent", Str(m, "to")) : Lang.T("botNotOn"));
+                    break;
+                case "botStart":
+                    if (BotEnabled) bot.Start();
+                    break;
+                case "botNewCode":
+                    bot.NewLinkCode();
+                    break;
+                case "botStop":
+                    bot.Stop();
+                    break;
+                case "botUnlink":
+                    bot.Unlink(Str(m, "name"));
+                    SendBot();
+                    break;
+                case "openQuick":
+                    OpenQuick(Str(m, "mode") == "save" ? "save" : "insert", FindOsuWindow());
+                    break;
+                case "share":
+                    Share(SafePath(Str(m, "path")));
+                    break;
                 case "packs":
                     LoadPacks();
                     break;
@@ -304,11 +390,10 @@ class MainForm : Form
                     break;
                 case "topmost":
                     TopMost = m.TryGetProperty("value", out var v) && v.ValueKind == JsonValueKind.True;
-                    try { File.WriteAllText(TopmostFile, TopMost ? "1" : "0"); } catch { }
                     SendState();
                     break;
                 case "lang":
-                    Lang.Set(Str(m, "value") == "en" ? "en" : "tr");
+                    Lang.Set(Str(m, "value"));
                     SendState();
                     SendMap(true);
                     break;
@@ -404,6 +489,83 @@ class MainForm : Form
         if (added == 0) SendStatus("import", false, Lang.T("importNone"));
         else SendStatus("import", true, Lang.T("imported", added) + (skipped > 0 ? " " + Lang.T("skipped", skipped) : ""));
         SendState();
+    }
+
+    // ---------------------------------------------------------------- osu! chat bot (test mode)
+    bool botReady;
+    void SetupBot()
+    {
+        if (botReady) { SendBot(); return; }
+        botReady = true;
+        bot.OnUi = a => { if (IsHandleCreated && !IsDisposed) BeginInvoke(a); };
+        bot.Changed = SendBot;
+        bot.Log = msg => bot.OnUi(() => SendStatus("bot", true, msg));   // the bot runs on another thread: talk to the window on the UI thread
+        bot.InsertPattern = path =>
+        {
+            string r = Core.Insert(path, replaceOverlapping, adaptRhythm);
+            SendStatus("insert", true, r);
+            return r;
+        };
+        bot.Undo = () => { string r = Core.Undo(); SendStatus("undo", true, r); return r; };
+        bot.ListPatterns = () =>
+        {
+            Directory.CreateDirectory(Core.PatternDir);
+            string root = Path.GetFullPath(Core.PatternDir);
+            return Directory.GetFiles(Core.PatternDir, "*.osu", SearchOption.AllDirectories).Select(f =>
+            {
+                var parts = Path.GetRelativePath(root, Path.GetFullPath(f)).Split(Path.DirectorySeparatorChar);
+                return (path: f, cat: parts.Length > 1 ? parts[0] : "", name: Path.GetFileNameWithoutExtension(f));
+            }).ToList();
+        };
+        FormClosing += (s, e) => bot.Stop();
+        SendBot();
+        if (BotEnabled && bot.Settings.AutoStart) bot.Start();
+    }
+
+    void SendBot() => Post(new
+    {
+        type = "bot",
+        state = bot.State,
+        error = bot.LastError,
+        username = bot.Settings.Username,
+        hasPassword = bot.Settings.GetPassword().Length > 0,
+        linked = bot.LinkedNames,
+        code = bot.LinkCode,
+        autostart = bot.Settings.AutoStart,
+        own = !bot.UseServer,
+        ownAllowed = File.Exists(Path.Combine(AppContext.BaseDirectory, "bot.own")),
+        botName = bot.UseServer ? bot.BotName : bot.Settings.Username
+    });
+
+    // ---------------------------------------------------------------- share to the community pack
+    // Opens a pre-filled GitHub issue with the pattern. When the owner approves it, it is added to the "Community" pack.
+    const string RepoUrl = "https://github.com/thaism442/osu-pattern-gallery";
+
+    void Share(string path)
+    {
+        if (path == null || !File.Exists(path)) return;
+        string root = Path.GetFullPath(Core.PatternDir);
+        var parts = Path.GetRelativePath(root, path).Split(Path.DirectorySeparatorChar);
+        string category = parts.Length > 1 ? parts[0] : "";
+        string name = Path.GetFileNameWithoutExtension(path);
+        string content = File.ReadAllText(path).Replace("\r\n", "\n").Trim();
+
+        string Body(string code) =>
+            "Category: " + category + "\n\n" + Lang.T("shareBody") + "\n\n```\n" + code + "\n```\n";
+        string url = RepoUrl + "/issues/new?title=" + Uri.EscapeDataString("[Pattern] " + name)
+                   + "&body=" + Uri.EscapeDataString(Body(content));
+
+        if (url.Length > 7000)   // too long for a link: copy the pattern and let the user paste it
+        {
+            try { Clipboard.SetText(content); } catch { }
+            url = RepoUrl + "/issues/new?title=" + Uri.EscapeDataString("[Pattern] " + name)
+                + "&body=" + Uri.EscapeDataString(Body(Lang.T("sharePaste")));
+            SendStatus("share", true, Lang.T("shareCopied"));
+        }
+        else SendStatus("share", true, Lang.T("shareOpened"));
+
+        try { Process.Start(new ProcessStartInfo(url) { UseShellExecute = true }); }
+        catch (Exception ex) { SendStatus("share", false, ex.Message); }
     }
 
     // ---------------------------------------------------------------- ready-made packs from GitHub
@@ -534,6 +696,7 @@ class MainForm : Form
     // ---------------------------------------------------------------- messages to the page
     void Post(object payload)
     {
+        if (InvokeRequired) { try { BeginInvoke(new Action(() => Post(payload))); } catch { } return; }   // always on the UI thread
         if (web.CoreWebView2 == null) return;
         web.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(payload));
     }
@@ -559,7 +722,7 @@ class MainForm : Form
         var categories = Directory.GetDirectories(Core.PatternDir)
             .Select(Path.GetFileName).OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToList();
 
-        Post(new { type = "state", lang = Lang.Current, topmost = TopMost, hotkey = hkLabel, replace = replaceOverlapping, adapt = adaptRhythm, categories, patterns });
+        Post(new { type = "state", lang = Lang.Current, topmost = TopMost, botEnabled = BotEnabled, hotkey = hkLabel, replace = replaceOverlapping, adapt = adaptRhythm, categories, patterns });
     }
 
     Preview.PatternData GetData(string path)
@@ -641,160 +804,13 @@ class MainForm : Form
     }
 }
 
-class QuickItem
+// The small "Save pattern / Insert pattern" window (ui\quick.html). It is created once and only shown / hidden.
+class QuickWindow : Form
 {
-    public string Path, Name, Info;
-    public override string ToString() => Name;
-}
-
-// The small window that opens with the hotkey:
-// "Save" tab (save the selected objects) and "Insert" tab (search a pattern and insert it)
-class QuickSaveForm : Form
-{
-    static readonly Color Bg = Color.FromArgb(28, 26, 34), Field = Color.FromArgb(40, 37, 47),
-        Accent = Color.FromArgb(255, 102, 170), Muted = Color.FromArgb(140, 133, 151), Err = Color.FromArgb(255, 107, 122);
-
-    readonly Func<string, string, string> save;
-    readonly Func<string, string> insert;
-    readonly List<QuickItem> all;
-
-    readonly Button saveTab, insertTab;
-    readonly Panel savePanel = new Panel(), insertPanel = new Panel();
-    readonly ComboBox cat = new ComboBox { DropDownStyle = ComboBoxStyle.DropDown, FlatStyle = FlatStyle.Flat,
-        AutoCompleteMode = AutoCompleteMode.SuggestAppend, AutoCompleteSource = AutoCompleteSource.ListItems };
-    readonly TextBox name = new TextBox { BorderStyle = BorderStyle.FixedSingle };
-    readonly Label error = new Label { AutoSize = false };
-    readonly TextBox search = new TextBox { BorderStyle = BorderStyle.FixedSingle };
-    readonly ListBox list = new ListBox { BorderStyle = BorderStyle.None, DrawMode = DrawMode.OwnerDrawFixed, ItemHeight = 26, IntegralHeight = false };
-    readonly Label hint = new Label { AutoSize = false };
-    bool onSave;
-
-    public QuickSaveForm(List<string> categories, string lastCategory, Func<string, string, string> save,
-                         List<QuickItem> patterns, Func<string, string> insert, bool startOnSave)
-    {
-        this.save = save;
-        this.insert = insert;
-        all = patterns;
-        FormBorderStyle = FormBorderStyle.None;
-        StartPosition = FormStartPosition.CenterScreen;
-        ShowInTaskbar = false;
-        TopMost = true;
-        BackColor = Bg;
-        ForeColor = Color.White;
-        Font = new Font("Segoe UI", 10f);
-        ClientSize = new Size(380, 300);
-        KeyPreview = true;
-        try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
-
-        // tabs
-        saveTab = MakeButton(Lang.T("tabSave"), Field, new Rectangle(16, 14, 110, 32));
-        insertTab = MakeButton(Lang.T("tabInsert"), Field, new Rectangle(132, 14, 110, 32));
-        saveTab.Click += (s, e) => ShowTab(true);
-        insertTab.Click += (s, e) => ShowTab(false);
-        var close = new Label { Text = "Esc", ForeColor = Muted, AutoSize = true, Location = new Point(334, 22), Font = new Font("Segoe UI", 8.5f) };
-
-        // save tab
-        savePanel.SetBounds(0, 56, 380, 244);
-        var catLabel = new Label { Text = Lang.T("hkCategory"), ForeColor = Muted, Location = new Point(16, 4), AutoSize = true };
-        cat.SetBounds(16, 26, 348, 28);
-        cat.BackColor = Field; cat.ForeColor = Color.White;
-        cat.Items.AddRange(categories.ToArray());
-        cat.Text = lastCategory ?? "";
-        var nameLabel = new Label { Text = Lang.T("hkName"), ForeColor = Muted, Location = new Point(16, 64), AutoSize = true };
-        name.SetBounds(16, 86, 348, 28);
-        name.BackColor = Field; name.ForeColor = Color.White;
-        error.SetBounds(16, 120, 348, 40);
-        error.ForeColor = Err;
-        error.Font = new Font("Segoe UI", 9f);
-        var cancel = MakeButton(Lang.T("cancel"), Field, new Rectangle(184, 196, 85, 32));
-        var ok = MakeButton(Lang.T("ok"), Accent, new Rectangle(279, 196, 85, 32));
-        cancel.Click += (s, e) => Close();
-        ok.Click += (s, e) => TrySave();
-        savePanel.Controls.AddRange(new Control[] { catLabel, cat, nameLabel, name, error, cancel, ok });
-
-        // insert tab
-        insertPanel.SetBounds(0, 56, 380, 244);
-        search.SetBounds(16, 4, 348, 28);
-        search.BackColor = Field; search.ForeColor = Color.White;
-        search.PlaceholderText = Lang.T("searchPh");
-        list.SetBounds(16, 38, 348, 166);
-        list.BackColor = Field; list.ForeColor = Color.White;
-        list.DrawItem += DrawItem;
-        list.DoubleClick += (s, e) => TryInsert();
-        hint.SetBounds(16, 210, 348, 26);
-        hint.ForeColor = Muted;
-        hint.Font = new Font("Segoe UI", 8.5f);
-        search.TextChanged += (s, e) => Filter();
-        insertPanel.Controls.AddRange(new Control[] { search, list, hint });
-
-        Controls.AddRange(new Control[] { saveTab, insertTab, close, savePanel, insertPanel });
-
-        KeyDown += (s, e) =>
-        {
-            if (e.KeyCode == Keys.Escape) { e.SuppressKeyPress = true; Close(); }
-            else if (e.KeyCode == Keys.Enter && !cat.DroppedDown) { e.SuppressKeyPress = true; if (onSave) TrySave(); else TryInsert(); }
-            else if (e.Control && e.KeyCode == Keys.Tab) { e.SuppressKeyPress = true; ShowTab(!onSave); }
-            else if (!onSave && (e.KeyCode == Keys.Down || e.KeyCode == Keys.Up) && list.Items.Count > 0)
-            {
-                e.SuppressKeyPress = true;
-                int i = list.SelectedIndex + (e.KeyCode == Keys.Down ? 1 : -1);
-                list.SelectedIndex = Math.Max(0, Math.Min(list.Items.Count - 1, i));
-            }
-        };
-
-        Filter();
-        ShowTab(startOnSave);
-        Shown += (s, e) =>
-        {
-            ForceForeground(Handle);
-            Activate();
-            (onSave ? (Control)name : search).Focus();
-        };
-    }
-
-    void ShowTab(bool toSave)
-    {
-        onSave = toSave;
-        savePanel.Visible = toSave;
-        insertPanel.Visible = !toSave;
-        saveTab.BackColor = toSave ? Accent : Field;
-        insertTab.BackColor = toSave ? Field : Accent;
-        (toSave ? (Control)name : search).Focus();
-    }
-
-    void Filter()
-    {
-        string q = search.Text.Trim();
-        list.BeginUpdate();
-        list.Items.Clear();
-        foreach (var it in all.Where(i => q.Length == 0 || i.Name.Contains(q, StringComparison.OrdinalIgnoreCase)))
-            list.Items.Add(it);
-        list.EndUpdate();
-        if (list.Items.Count > 0) list.SelectedIndex = 0;
-        hint.Text = all.Count == 0 ? Lang.T("noPatterns") : Lang.T("insertHint");
-    }
-
-    void DrawItem(object sender, DrawItemEventArgs e)
-    {
-        if (e.Index < 0) return;
-        var it = (QuickItem)list.Items[e.Index];
-        bool sel = (e.State & DrawItemState.Selected) != 0;
-        using (var b = new SolidBrush(sel ? Accent : Field)) e.Graphics.FillRectangle(b, e.Bounds);
-        TextRenderer.DrawText(e.Graphics, it.Name, Font, new Rectangle(e.Bounds.X + 8, e.Bounds.Y, e.Bounds.Width - 124, e.Bounds.Height),
-            Color.White, TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
-        using var small = new Font("Segoe UI", 8.5f);
-        TextRenderer.DrawText(e.Graphics, it.Info, small, new Rectangle(e.Bounds.Right - 116, e.Bounds.Y, 108, e.Bounds.Height),
-            sel ? Color.White : Muted, TextFormatFlags.VerticalCenter | TextFormatFlags.Right | TextFormatFlags.NoPrefix);
-    }
-
-    void TryInsert()
-    {
-        if (list.SelectedItem is QuickItem it)
-        {
-            insert(it.Path);
-            Close();
-        }
-    }
+    readonly WebView2 web = new WebView2 { Dock = DockStyle.Fill, DefaultBackgroundColor = Color.FromArgb(28, 26, 34) };
+    public bool Ready;
+    public IntPtr ReturnTo;
+    public event Action<string> Message;
 
     [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr hWnd, IntPtr pid);
@@ -802,39 +818,61 @@ class QuickSaveForm : Form
     [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr hWnd);
     [DllImport("kernel32.dll")] static extern uint GetCurrentThreadId();
 
-    static void ForceForeground(IntPtr h)
+    public QuickWindow()
     {
+        FormBorderStyle = FormBorderStyle.None;
+        StartPosition = FormStartPosition.Manual;
+        ShowInTaskbar = false;
+        TopMost = true;
+        BackColor = Color.FromArgb(28, 26, 34);
+        Size = new Size(560, 600);
+        Controls.Add(web);
+        try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
+        FormClosing += (s, e) => { if (e.CloseReason == CloseReason.UserClosing) { e.Cancel = true; Hide(); } };
+    }
+
+    public async Task Init(CoreWebView2Environment env)
+    {
+        CreateControl();
+        var h = Handle;   // make sure the window exists before WebView2 starts
+        await web.EnsureCoreWebView2Async(env);
+        var cw = web.CoreWebView2;
+        cw.Settings.AreDefaultContextMenusEnabled = false;
+        cw.Settings.IsStatusBarEnabled = false;
+        cw.Settings.IsZoomControlEnabled = false;
+        cw.SetVirtualHostNameToFolderMapping("app.local", Path.Combine(AppContext.BaseDirectory, "ui"),
+            CoreWebView2HostResourceAccessKind.Allow);
+        cw.WebMessageReceived += (s, e) =>
+        {
+            string json;
+            try { json = e.WebMessageAsJson; } catch { return; }
+            if (json.Contains("\"qready\"")) { Ready = true; return; }
+            Message?.Invoke(json);
+        };
+        cw.Navigate("https://app.local/quick.html");
+    }
+
+    public void Post(object payload)
+    {
+        if (web.CoreWebView2 == null) return;
+        web.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(payload));
+    }
+
+    // shows the window in the middle of the screen osu! is on, in front, with the keyboard focus
+    public void ShowOver(IntPtr owner)
+    {
+        var screen = owner != IntPtr.Zero ? Screen.FromHandle(owner) : Screen.PrimaryScreen;
+        var area = screen.WorkingArea;
+        int w = Math.Min(560, area.Width - 40), hgt = Math.Min(600, area.Height - 40);
+        Bounds = new Rectangle(area.Left + (area.Width - w) / 2, area.Top + (area.Height - hgt) / 2, w, hgt);
+        Show();
         uint fgThread = GetWindowThreadProcessId(GetForegroundWindow(), IntPtr.Zero);
         uint me = GetCurrentThreadId();
         bool attached = fgThread != 0 && fgThread != me && AttachThreadInput(me, fgThread, true);
-        SetForegroundWindow(h);
+        SetForegroundWindow(Handle);
         if (attached) AttachThreadInput(me, fgThread, false);
-    }
-
-    static Button MakeButton(string text, Color back, Rectangle r)
-    {
-        var b = new Button { Text = text, BackColor = back, ForeColor = Color.White, FlatStyle = FlatStyle.Flat,
-            Font = new Font("Segoe UI", 10f, FontStyle.Bold), Bounds = r, Cursor = Cursors.Hand, TabStop = false };
-        b.FlatAppearance.BorderSize = 0;
-        return b;
-    }
-
-    void TrySave()
-    {
-        error.Text = "";
-        UseWaitCursor = true;
-        string result = save(cat.Text, name.Text);
-        UseWaitCursor = false;
-        if (result == null) Close();
-        else error.Text = result;
-    }
-
-    // thin pink frame
-    protected override void OnPaint(PaintEventArgs e)
-    {
-        base.OnPaint(e);
-        using var pen = new Pen(Accent, 2);
-        e.Graphics.DrawRectangle(pen, 1, 1, ClientSize.Width - 2, ClientSize.Height - 2);
+        Activate();
+        web.Focus();
     }
 }
 
@@ -858,6 +896,7 @@ static class KeyHook
     static volatile bool ctrl, alt, shift;
     public static volatile bool Enabled = true;
     public static IntPtr OsuWindow;
+    public static IntPtr QuickWindow;
     public static Action Pressed;
 
     static HookProc proc;          // kept here so it is not garbage collected
@@ -904,6 +943,7 @@ static class KeyHook
     static bool EditorIsActive()
     {
         IntPtr fg = GetForegroundWindow();
+        if (fg != IntPtr.Zero && fg == QuickWindow) return true;
         if (fg == IntPtr.Zero || fg != OsuWindow) return false;
         var sb = new System.Text.StringBuilder(512);
         InternalGetWindowText(fg, sb, sb.Capacity);

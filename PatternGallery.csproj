@@ -17,6 +17,7 @@
       <HintPath>lib\EditorReader.dll</HintPath>
     </Reference>
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.*" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
   </ItemGroup>
 
   <ItemGroup>

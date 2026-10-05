@@ -1,0 +1,198 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Pattern Gallery</title>
+<link href="https://fonts.googleapis.com/css2?family=Exo+2:wght@400;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<style>
+html,body{height:100%}
+body{border:2px solid var(--accent);border-radius:0;overflow:hidden}
+.q{height:100%;display:flex;flex-direction:column}
+.qtop{display:flex;align-items:center;gap:6px;padding:10px 10px 0 12px}
+.tab{height:36px;padding:0 16px;border-radius:10px 10px 0 0;border:none;background:transparent;color:var(--muted);font:inherit;font-weight:800;font-size:14px;cursor:pointer}
+.tab.on{background:var(--card);color:var(--accent)}
+.tab:hover{color:var(--text)}
+.x{margin-left:auto;width:30px;height:30px;border-radius:50%;border:none;background:var(--card);color:var(--muted);font-size:16px;cursor:pointer;line-height:1}
+.x:hover{background:var(--err);color:#fff}
+.qbody{flex:1;min-height:0;background:var(--card);margin:0 10px 10px;border-radius:0 12px 12px 12px;padding:12px;display:flex;flex-direction:column;gap:10px}
+.qbody .input{background:var(--input)}
+.qbody .chip{background:var(--card2)}
+.qbody .chip.on{background:var(--accent)}
+.lbl{font-size:12px;color:var(--muted);font-weight:600}
+.err{font-size:12px;color:var(--err);min-height:16px}
+.qgrid{flex:1;min-height:0;overflow-y:auto;margin-right:-6px;padding-right:4px}
+.qgrid::-webkit-scrollbar{width:8px}
+.qgrid::-webkit-scrollbar-thumb{background:var(--line);border-radius:4px}
+.qgrid .grid{grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px}
+.qgrid .card{background:var(--bg)}
+.num{position:absolute;top:6px;left:6px;background:rgba(0,0,0,.6);color:#fff;font-size:11px;font-weight:800;border-radius:8px;padding:2px 7px}
+.hint{font-size:11px;color:var(--muted)}
+.hidden{display:none !important}
+</style>
+</head>
+<body>
+<div class="q">
+  <div class="qtop">
+    <button class="tab" id="tabSave"></button>
+    <button class="tab" id="tabInsert"></button>
+    <button class="x" id="closeBtn" title="">✕</button>
+  </div>
+
+  <!-- save -->
+  <div class="qbody" id="saveBody">
+    <div class="lbl" id="sCatL"></div>
+    <div class="chips" id="sCats"></div>
+    <div class="lbl" id="sNameL"></div>
+    <input class="input" id="sName" maxlength="60" style="flex:none">
+    <div class="err" id="sErr"></div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:auto">
+      <button class="btn pri" id="sOk"></button>
+    </div>
+  </div>
+
+  <!-- insert -->
+  <div class="qbody hidden" id="insertBody">
+    <input class="input" id="iSearch" style="flex:none">
+    <div class="chips" id="iCats"></div>
+    <div class="qgrid" id="iGrid"></div>
+    <div class="hint" id="iHint"></div>
+  </div>
+</div>
+
+<script src="preview.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const send = m => { if (window.chrome && chrome.webview) chrome.webview.postMessage(m); };
+const STR = { en: {}, cur: {} };
+const t = (k, ...a) => String(STR.cur[k] ?? STR.en[k] ?? k).replace(/\{(\d)\}/g, (_, i) => a[i]);
+async function loadLang(code) {
+  const get = async c => { try { const r = await fetch("lang/" + c + ".json"); return r.ok ? await r.json() : {}; } catch { return {}; } };
+  if (!Object.keys(STR.en).length) STR.en = await get("en");
+  STR.cur = code === "en" ? STR.en : await get(code);
+}
+
+let Q = { mode: "insert", lang: "", categories: [], patterns: [], saveCat: "", insCat: "", sel: null, adding: false };
+
+function texts() {
+  $("tabSave").textContent = t("qSaveTab");
+  $("tabInsert").textContent = t("qInsertTab");
+  $("closeBtn").title = t("bClose");
+  $("sCatL").textContent = t("edCat");
+  $("sNameL").textContent = t("hkName");
+  $("sName").placeholder = t("namePh");
+  $("sOk").textContent = t("qSaveTab");
+  $("iSearch").placeholder = t("searchPh");
+  $("iHint").textContent = t("qHint");
+}
+
+function showTab(mode) {
+  Q.mode = mode;
+  $("tabSave").classList.toggle("on", mode === "save");
+  $("tabInsert").classList.toggle("on", mode === "insert");
+  $("saveBody").classList.toggle("hidden", mode !== "save");
+  $("insertBody").classList.toggle("hidden", mode !== "insert");
+  setTimeout(() => (mode === "save" ? $("sName") : $("iSearch")).focus(), 30);
+}
+
+// ---------------- save tab
+function renderSaveCats() {
+  let h = `<div class="chip ${Q.saveCat === "" ? "on" : ""}" data-c="">${esc(t("noCat"))}</div>`;
+  for (const c of Q.categories) h += `<div class="chip ${Q.saveCat === c ? "on" : ""}" data-c="${esc(c)}">${esc(c)}</div>`;
+  h += Q.adding ? `<div class="chip add"><input id="newCat" placeholder="${esc(t("newCatPh"))}" maxlength="30"></div>`
+                : `<div class="chip add" id="addCat">${esc(t("newCat"))}</div>`;
+  $("sCats").innerHTML = h;
+  if (Q.adding) {
+    const inp = $("newCat"); inp.focus();
+    const commit = () => { if (!Q.adding) return; Q.adding = false; const v = inp.value.trim(); if (v) { if (!Q.categories.includes(v)) Q.categories.push(v); Q.saveCat = v; } renderSaveCats(); $("sName").focus(); };
+    inp.onkeydown = e => { if (e.key === "Enter") { e.preventDefault(); e.stopPropagation(); commit(); } };
+    inp.onblur = commit;
+  }
+}
+$("sCats").addEventListener("click", e => {
+  if (e.target.closest("#addCat")) { Q.adding = true; renderSaveCats(); return; }
+  const c = e.target.closest("[data-c]"); if (c) { Q.saveCat = c.dataset.c; renderSaveCats(); }
+});
+function doSave() {
+  $("sErr").textContent = "";
+  send({ cmd: "qsave", category: Q.saveCat, name: $("sName").value });
+}
+$("sOk").onclick = doSave;
+
+// ---------------- insert tab
+function visible() {
+  const q = $("iSearch").value.trim().replace(/^!/, "").toLowerCase();
+  let list = Q.patterns.filter(p => Q.insCat === "" || p.cat.toLowerCase() === Q.insCat.toLowerCase());
+  const m = q.match(/^(.+?)\s+(\d+)$/);
+  if (m) {
+    const exact = Q.patterns.find(p => p.cat.toLowerCase() === m[1] && p.index === +m[2]);
+    if (exact) return [exact];
+  }
+  if (q) list = Q.patterns.filter(p => p.name.toLowerCase().includes(q) || (p.cat + " " + p.index).toLowerCase().startsWith(q) || p.cat.toLowerCase().startsWith(q));
+  return list;
+}
+function renderInsert() {
+  let h = `<div class="chip ${Q.insCat === "" ? "on" : ""}" data-c="">${esc(t("all"))}<span class="n">${Q.patterns.length}</span></div>`;
+  for (const c of Q.categories) {
+    const n = Q.patterns.filter(p => p.cat === c).length;
+    if (n) h += `<div class="chip ${Q.insCat === c ? "on" : ""}" data-c="${esc(c)}">${esc(c)}<span class="n">${n}</span></div>`;
+  }
+  $("iCats").innerHTML = h;
+  const list = visible();
+  if (!list.some(p => p.path === Q.sel)) Q.sel = list.length ? list[0].path : null;
+  if (!list.length) { $("iGrid").innerHTML = `<div class="empty">${esc(Q.patterns.length ? t("emptySearch") : t("noPatterns"))}</div>`; return; }
+  $("iGrid").innerHTML = `<div class="grid">` + list.map(p => `
+    <div class="card ${p.path === Q.sel ? "sel" : ""}" data-path="${esc(p.path)}" title="${esc(p.name)}">
+      ${preview(p)}
+      ${p.cat ? `<span class="num">${esc(p.cat)} ${p.index}</span>` : ""}
+      <div class="nm">${esc(p.name)}</div>
+      <div class="meta">${p.count} ${esc(t("notes"))}${p.bpm ? " · " + p.bpm + " BPM" : ""}</div>
+    </div>`).join("") + `</div>`;
+}
+$("iCats").addEventListener("click", e => { const c = e.target.closest("[data-c]"); if (c) { Q.insCat = c.dataset.c; $("iSearch").value = ""; renderInsert(); } });
+$("iSearch").oninput = renderInsert;
+$("iGrid").addEventListener("click", e => {
+  const c = e.target.closest(".card"); if (!c) return;
+  Q.sel = c.dataset.path;
+  document.querySelectorAll(".card").forEach(x => x.classList.toggle("sel", x === c));
+});
+$("iGrid").addEventListener("dblclick", e => { const c = e.target.closest(".card"); if (c) send({ cmd: "qinsert", path: c.dataset.path }); });
+function moveSel(d) {
+  const list = visible(); if (!list.length) return;
+  let i = list.findIndex(p => p.path === Q.sel); i = Math.max(0, Math.min(list.length - 1, i + d));
+  Q.sel = list[i].path; renderInsert();
+  const el = document.querySelector(".card.sel"); if (el) el.scrollIntoView({ block: "nearest" });
+}
+
+// ---------------- common
+$("tabSave").onclick = () => showTab("save");
+$("tabInsert").onclick = () => showTab("insert");
+$("closeBtn").onclick = () => send({ cmd: "qclose" });
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape") { e.preventDefault(); send({ cmd: "qclose" }); return; }
+  if (e.ctrlKey && e.key === "Tab") { e.preventDefault(); showTab(Q.mode === "save" ? "insert" : "save"); return; }
+  if (Q.mode === "save" && e.key === "Enter" && !Q.adding) { e.preventDefault(); doSave(); return; }
+  if (Q.mode === "insert") {
+    if (e.key === "Enter") { e.preventDefault(); if (Q.sel) send({ cmd: "qinsert", path: Q.sel }); }
+    else if (e.key === "ArrowRight" || e.key === "ArrowDown") { e.preventDefault(); moveSel(e.key === "ArrowDown" ? 3 : 1); }
+    else if (e.key === "ArrowLeft" || e.key === "ArrowUp") { e.preventDefault(); moveSel(e.key === "ArrowUp" ? -3 : -1); }
+  }
+});
+
+window.chrome && chrome.webview && chrome.webview.addEventListener("message", async e => {
+  const m = e.data;
+  if (m.type === "quick") {
+    if (m.lang !== Q.lang) { Q.lang = m.lang; await loadLang(m.lang); }
+    Q.categories = m.categories || []; Q.patterns = m.patterns || [];
+    Q.saveCat = m.lastCat && Q.categories.includes(m.lastCat) ? m.lastCat : (Q.saveCat || "");
+    Q.adding = false; $("sName").value = ""; $("sErr").textContent = ""; $("iSearch").value = "";
+    texts(); renderSaveCats(); renderInsert(); showTab(m.mode);
+  } else if (m.type === "qresult") {
+    $("sErr").textContent = m.text || "";
+  }
+});
+send({ cmd: "qready" });
+</script>
+</body>
+</html>

@@ -98,9 +98,13 @@ static class Core
 
         ReloadEditor(osu);
         string msg = Lang.T("inserted", shifted.Count, FormatTime(editorTime));
-        if (removed > 0) msg += " " + Lang.T("replaced", removed);
-        return msg + rhythmNote;
+        string notes = (removed > 0 ? " " + Lang.T("replaced", removed) : "") + rhythmNote;
+        // for osu! chat the time goes last: osu! turns the time into a link up to the next ")", so nothing may follow it
+        LastChatText = Lang.T("botInsertedChat", shifted.Count, notes) + " " + FormatTime(editorTime);
+        return msg + notes;
     }
+
+    public static string LastChatText;   // the last insert message, written for osu! chat
 
     // ---------------------------------------------------------------- RHYTHM ADAPTATION
     // The pattern keeps its rhythm in beats: a 1/4 stream stays 1/4 and a 1/2 slider stays 1/2 long,
@@ -162,7 +166,8 @@ static class Core
         var tTiming = ReaderTiming(reader);
         double t0 = objects.Min(GetTime);
         double pBeat = BeatAt(pTiming, t0), tBeat = BeatAt(tTiming, editorTime);
-        if (pBeat <= 0 || tBeat <= 0) return null;   // pattern has no timing: insert as it is
+        if (tBeat <= 0) return null;                 // the beatmap has no timing: insert as it is
+        if (pBeat <= 0) return SnapWithoutTiming(objects, t0, editorTime, tBeat, out note);   // the pattern has no BPM
 
         double pSM = 1.4;
         foreach (var l in GetSection(patternLines, "Difficulty"))
@@ -202,6 +207,38 @@ static class Core
 
         int pBpm = (int)Math.Round(60000 / pBeat), tBpm = (int)Math.Round(60000 / tBeat);
         note = " " + (pBpm != tBpm ? Lang.T("adapted", pBpm, tBpm) : Lang.T("adaptedSame"));
+        return result;
+    }
+
+    // For patterns saved without BPM: keep the spacing in ms, but put every object on the nearest
+    // 1/4 or 1/3 tick of the beatmap so the notes line up with the timeline
+    static List<string> SnapWithoutTiming(List<string> objects, double t0, int editorTime, double tBeat, out string note)
+    {
+        double Snap(double t)
+        {
+            double rel = t - t0;
+            double q = Math.Round(rel / (tBeat / 4)) * (tBeat / 4);
+            double r = Math.Round(rel / (tBeat / 3)) * (tBeat / 3);
+            return editorTime + (Math.Abs(q - rel) <= Math.Abs(r - rel) ? q : r);
+        }
+
+        var result = new List<string>();
+        foreach (var line in objects)
+        {
+            var p = line.Split(',');
+            p[2] = Fmt(Snap(double.Parse(p[2], NumberStyles.Float, Inv)));
+            int type = int.Parse(p[3], Inv);
+            if ((type & 8) != 0 && p.Length > 5)
+                p[5] = Fmt(Snap(double.Parse(p[5], NumberStyles.Float, Inv)));
+            else if ((type & 128) != 0 && p.Length > 5)
+            {
+                var h = p[5].Split(':');
+                h[0] = Fmt(Snap(double.Parse(h[0], NumberStyles.Float, Inv)));
+                p[5] = string.Join(":", h);
+            }
+            result.Add(string.Join(",", p));
+        }
+        note = " " + Lang.T("adaptedNoBpm");
         return result;
     }
 
